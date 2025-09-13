@@ -1,0 +1,178 @@
+<!DOCTYPE HTML><html>
+<head>
+  <title>IOT DASHBOARD</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous">
+  <link rel="icon" href="data:,">
+  <style>
+    html {font-family: Arial; display: inline-block; text-align: center;}
+    p {  font-size: 1.2rem;}
+    body {  margin: 0;}
+    .topnav { overflow: hidden; background-color: #2f4468; color: white; font-size: 1.7rem; }
+    .content { padding: 20px; }
+    .card { background-color: white; box-shadow: 2px 2px 12px 1px rgba(140,140,140,.5); }
+    .cards { max-width: 700px; margin: 0 auto; display: grid; grid-gap: 2rem; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .reading { font-size: 2.8rem; }
+    .packet { color: #bebebe; }
+    .card.temperature { color: #fd7e14; }
+    .card.humidity { color: #1b78e2; }
+
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 60px;
+    height: 34px;
+  }
+
+  .switch input { 
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    -webkit-transition: .4s;
+    transition: .4s;
+  }
+
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 26px;
+    width: 26px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    -webkit-transition: .4s;
+    transition: .4s;
+  }
+
+  input:checked + .slider {
+    background-color: #2196F3;
+  }
+
+  input:focus + .slider {
+    box-shadow: 0 0 1px #2196F3;
+  }
+
+  input:checked + .slider:before {
+    -webkit-transform: translateX(26px);
+    -ms-transform: translateX(26px);
+    transform: translateX(26px);
+  }
+
+  /* Rounded sliders */
+  .slider.round {
+    border-radius: 34px;
+  }
+
+  .slider.round:before {
+    border-radius: 50%;
+  }
+
+  </style>
+</head>
+<body>
+  <div class="topnav">
+    <h3>IOT DASHBOARD</h3>
+  </div>
+  <div class="content">
+    <div class="cards">
+      <div class="card temperature">
+        <p class="card-title"><i class="fas fa-thermometer-half"></i> TEMPERATURE</p><p><span class="reading"><span id="t"></span> &deg;C</span></p>
+      </div>
+      <div class="card humidity">
+        <p class="card-title"><i class="fas fa-tint"></i> HUMIDITY</p><p><span class="reading"><span id="h"></span> &percnt;</span></p>
+      </div>
+    </div>
+  </div>
+
+<h2>Switch_1</h2>
+
+<label class="switch" id="switch1">
+  <!-- <input type="checkbox" checked id="switch" onclick="switch_function()"> -->
+  <input type="checkbox" id="switch" onclick="switch_function()">
+  <span class="slider round"></span>
+</label>
+
+<!-- <p>Drag the slider to display the current value.</p>
+
+<div class="slidecontainer">
+  <input type="range" min="1" max="100" value="50"  id="myRange">
+  <p>Value: <span id="demo"></span></p>
+</div> -->
+
+<div class="picker-container">
+	<div class="row">
+		<h3>RGB Hex code Generator</h3>
+	</div>
+	<input class="jscolor {onFineChange:'update(this)}" id="rgb">
+	<button onclick="rgb_hex()">Send</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jscolor/2.0.4/jscolor.min.js">
+  function update(picker) {
+    document.getElementById('rgb').InnerHTML = Math.round(picker.rgb[0]) + ', ' + Math.round(picker.rgb[1]) + ', '
+    + Math.round(picker.rgb[2]);
+  }
+</script>
+
+<script>
+var xhttp1 = new XMLHttpRequest();
+xhttp1.onreadystatechange = function()
+{
+	const obj = JSON.parse(this.responseText);
+	var element1 = document.getElementById('t');
+	element1.innerText = obj.temperature;
+	var element2 = document.getElementById('h');
+	element2.innerText = obj.humidity;
+}
+
+setInterval(function() {
+    xhttp1.open("GET", "/env_sensor_data", true);
+    xhttp1.send();
+}, 1500);
+
+function switch_function() {
+	var checkBox = document.getElementById("switch");
+  xhttp1.open("POST", "/switch_1", true);
+  xhttp1.setRequestHeader("Content-Type", "text/plain");
+	if(checkBox.checked == true) {
+    xhttp1.send("ON");
+	} else {
+    xhttp1.send("OFF");
+	}
+}
+
+function rgb_hex() {
+  // Get the color value from the input field
+  var color = document.getElementById("rgb").value;
+  var xhttp = new XMLHttpRequest();
+  // Set up the POST request
+  xhttp.open("POST", "/rgb", true);
+  xhttp.setRequestHeader("Content-Type", "text/plain");
+  // Send the color value to the server
+  xhttp.send(color);
+}
+
+// var slider = document.getElementById("myRange");
+// var output = document.getElementById("demo");
+// output.innerHTML = slider.value;
+
+// slider.oninput = function() {
+//   output.innerHTML = this.value;
+//   xhttp1.open("POST", "/slider", true);
+//   xhttp1.setRequestHeader("Content-Type", "text/plain");
+//   xhttp1.send(this.value);
+// }
+
+</script>
+</body>
+</html>
