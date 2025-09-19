@@ -4,4 +4,5 @@ idf_component_register(SRCS "main.c"
                             "environment_sensor.c"
                             "nvs_flash_storage.c"
                             "ledc_pwm.c"
+                            "mqtt.c" 
                     INCLUDE_DIRS ".")

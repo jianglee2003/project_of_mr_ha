@@ -5,8 +5,13 @@
 #include "environment_sensor.h"
 #include "nvs_flash_storage.h"
 #include "ledc_pwm.h"
+#include "mqtt.h"
 
 #include "driver/gpio.h"
+
+#include "cJSON.h"
+
+#include "esp_log.h"
 
 #define HTTP_DATA "HTTP_Data_Callback"
 
@@ -43,7 +48,7 @@ char ssid_str[30] = {0}, password_str[30] = {0};
 // Store RGB value.
 int red = 0, green = 0, blue = 0, change_flag = 0;
 
-void switch_callback(char *data, int len) {
+void http_switch_callback(char *data, int len) {
     // Compare data received with the string "ON" or "OFF" for next work.
     if(strcmp(data, "ON") == 0) {
         gpio_set_level(LED_GREEN_PIN, 1);
@@ -55,7 +60,7 @@ void switch_callback(char *data, int len) {
     }
 }
 
-void env_sensor_callback(void) {
+void http_env_sensor_callback(void) {
     float temp = 0, humd = 0;
     // Read temperature, humidity, and light intensity.
     temp =  read_temperature();
@@ -67,7 +72,7 @@ void env_sensor_callback(void) {
     // httpd_resp_send(req, resp_str, strlen(resp_str));
 }
 
-void rgb_callback(char *data, int len) {
+void http_rgb_callback(char *data, int len) {
     ESP_LOGI("RGB Callback", "Value: %s", data);
     sscanf(data, "%2x%2x%2x", &red, &green, &blue);
     change_flag = 1;
@@ -89,6 +94,60 @@ void set_rgb_color(void * parameter) {
         }
         vTaskDelay(pdMS_TO_TICKS(150));
     }
+}
+
+void process_command_from_mqtt(esp_mqtt_client_handle_t client, char* topic, char *data, int data_length) {
+  cJSON *json = cJSON_Parse(data);
+  if (json == NULL) {
+      ESP_LOGE("JSON", "Error parsing JSON data, data received: %s", data);
+      return;
+  }
+
+  char topic_str[20];
+
+  // status
+  cJSON *status = cJSON_GetObjectItem(json, "status");
+  if (strstr(status->valuestring, "on") != NULL) {
+    gpio_set_level(LED_GREEN_PIN, 1);
+    ESP_LOGI("Switch", "command: %s", status->valuestring);
+    sprintf(topic_str, "%s", "/led/");
+  } 
+  
+  else if (strstr(status->valuestring, "off") != NULL) {
+    gpio_set_level(LED_GREEN_PIN, 0);
+    ESP_LOGI("Switch", "command: %s", status->valuestring);
+    sprintf(topic_str, "%s", "/led/");
+  } 
+  
+  else {
+    ESP_LOGI("RGB Callback", "Value: %s", status->valuestring);
+    sscanf(status->valuestring, "%2x%2x%2x", &red, &green, &blue);
+    change_flag = 1;
+    sprintf(topic_str, "%s", "/rgb/");
+  }
+
+  // Response to MQTT.
+  char response[50];
+  sprintf(response, "{\"status\":\"%s\",\"type\":\"response\"}", status->valuestring);
+  esp_mqtt_client_publish(client, topic_str, response, 0, 0, 1);
+}
+
+void push_env_data_to_mqtt_task(void *parameter){
+  for(;;) {
+    xEventGroupWaitBits(mqtt_eventgroup, MQTT_CONNECTED_TO_TOPIC_BIT, pdFALSE, pdFALSE, portMAX_DELAY); 
+
+    float temp = 0, humd = 0;
+    temp =  read_temperature();
+    humd = read_humidity();
+
+    char data[40];
+    sprintf(data, "{\"temp\":%.2f,\"humd\":%.2f}", temp, humd);
+    int msg_id = esp_mqtt_client_publish(global_client, "/env_data/", data, 0, 0, 1);
+    if (msg_id < 0) {
+        ESP_LOGE(TAG_MQTT, "Publish failed, client not ready");
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
 }
 
 void smartconfig_led_indicator(void *parameter) {
@@ -126,26 +185,35 @@ void wifi_led_indicator(void * parameter) {
   }
 }
 
-void http_server_initialise(void * parameter) {
-    xEventGroupWaitBits(wifi_sta_smartconfig_eventgroup, 
-                        WIFI_INFO_RECEIVE_BIT | WIFI_INFO_NVS_STORAGE_BIT, 
-                        pdFALSE, 
-                        pdFALSE, 
-                        portMAX_DELAY); 
+void http_server_and_mqtt_client_initialise(void * parameter) {
+  xEventGroupWaitBits(wifi_sta_smartconfig_eventgroup, 
+                      WIFI_INFO_RECEIVE_BIT | WIFI_INFO_NVS_STORAGE_BIT, 
+                      pdFALSE, 
+                      pdFALSE, 
+                      portMAX_DELAY); 
 
-    xTaskCreate(wifi_led_indicator, "wifi_led_indicator", 2048, NULL, 6, NULL);
+  xTaskCreate(wifi_led_indicator, "wifi_led_indicator", 2048, NULL, 6, NULL);
 
-    // Connect to Wifi.
-    wifi_connect(ssid_str, password_str);
-    xEventGroupWaitBits(wifi_sta_smartconfig_eventgroup, WIFI_CONNECTED_BIT, pdFALSE, pdFALSE, portMAX_DELAY);  
+  // Connect to Wifi.
+  wifi_connect(ssid_str, password_str);
+  xEventGroupWaitBits(wifi_sta_smartconfig_eventgroup, WIFI_CONNECTED_BIT, pdFALSE, pdFALSE, portMAX_DELAY);  
 
-    start_webserver();
+  // Web server.
+  start_webserver();
+  http_set_callback_switch(http_switch_callback);
+  http_set_callback_env_sensor(http_env_sensor_callback);
+  http_set_callback_rgb(http_rgb_callback);
 
-    http_set_callback_switch(switch_callback);
-    http_set_callback_env_sensor(env_sensor_callback);
-    http_set_callback_rgb(rgb_callback);
+  // MQTT Client.
+  mqtt_app_start(BROKER_URL);
 
-    vTaskDelete(NULL);
+  // Set the callback function for receiving data.
+  set_callback_get_data_mqtt(process_command_from_mqtt);
+
+  // Sequently send env data to MQTT.
+  xTaskCreate(push_env_data_to_mqtt_task, "push_env_data_to_mqtt_task", 4096, NULL, 4, NULL);
+
+  vTaskDelete(NULL);
 }
 
 void smartconfig_task(void * parm) {
@@ -153,7 +221,7 @@ void smartconfig_task(void * parm) {
   smartconfig_start_config_t cfg = SMARTCONFIG_START_CONFIG_DEFAULT();
   ESP_ERROR_CHECK( esp_smartconfig_start(&cfg) );
 
-  xTaskCreate(http_server_initialise, "http_server_initialise", 4096, NULL, 4, NULL);
+  xTaskCreate(http_server_and_mqtt_client_initialise, "http_server_and_mqtt_client_initialise", 4096, NULL, 4, NULL);
 
   // If this BIT is set, that means the ESP32 is connected to AP, then response info to the Moblie App.
   xEventGroupWaitBits(wifi_sta_smartconfig_eventgroup, ESPTOUCH_DONE_BIT, true, false, portMAX_DELAY);
@@ -235,7 +303,7 @@ void app_main(void) {
 
     initialise_wifi();
 
-    xTaskCreate(reset_device_by_button_task, "reset_device_by_button_task", 4096, NULL, 4, NULL);
+    xTaskCreate(reset_device_by_button_task, "reset_device_by_button_task", 2048, NULL, 4, NULL);
 
     // Read the flag value from NVS.
     nvs_read_value_uint8(NVS_NAME_SPACE, my_handle, NVS_FLAG_KEY, &wifi_info_flag);
@@ -255,6 +323,6 @@ void app_main(void) {
         nvs_read_string(NVS_NAME_SPACE, my_handle, NVS_PASSWORD_KEY, password_str, sizeof(password_str));
 
         xEventGroupSetBits(wifi_sta_smartconfig_eventgroup, WIFI_INFO_NVS_STORAGE_BIT);
-        xTaskCreate(http_server_initialise, "http_server_initialise", 4096, NULL, 4, NULL);
+        xTaskCreate(http_server_and_mqtt_client_initialise, "http_server_and_mqtt_client_initialise", 4096, NULL, 4, NULL);
     }
 }
