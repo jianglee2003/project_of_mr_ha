@@ -11,7 +11,7 @@ static void log_error_if_nonzero(const char *message, int error_code)
     }
 }
 
-esp_mqtt_event_handle_t event = NULL;
+esp_mqtt_event_handle_t global_event = NULL;
 esp_mqtt_client_handle_t global_client = NULL;
 
 /*
@@ -26,12 +26,14 @@ esp_mqtt_client_handle_t global_client = NULL;
  */
 void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
     ESP_LOGD(TAG_MQTT, "Event dispatched from event loop base = %s, event_id = %" PRIi32, base, event_id);
-    event = event_data;
+    esp_mqtt_event_handle_t event = event_data;
     int msg_id; // Message ID.
 
     switch ((esp_mqtt_event_id_t)event_id) {
         case MQTT_EVENT_CONNECTED: {
             ESP_LOGI(TAG_MQTT, "MQTT_EVENT_CONNECTED");
+
+            global_event = event;
             global_client = event->client;
 
             char topic[15];

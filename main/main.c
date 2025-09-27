@@ -132,7 +132,7 @@ void process_command_from_mqtt(esp_mqtt_client_handle_t client, char* topic, cha
   esp_mqtt_client_publish(client, topic_str, response, 0, 0, 1);
 }
 
-void push_env_data_to_mqtt_task(void *parameter){
+void push_env_data_to_mqtt_task(void *parameter) {
   for(;;) {
     xEventGroupWaitBits(mqtt_eventgroup, MQTT_CONNECTED_TO_TOPIC_BIT, pdFALSE, pdFALSE, portMAX_DELAY); 
 
@@ -140,11 +140,11 @@ void push_env_data_to_mqtt_task(void *parameter){
     temp =  read_temperature();
     humd = read_humidity();
 
-    char data[40];
-    sprintf(data, "{\"temp\":%.2f,\"humd\":%.2f}", temp, humd);
+    char data[100];
+    sprintf(data, "{\"device_name\":\"env_sensor_01\",\"temp\":%.2f,\"humd\":%.2f}", temp, humd); 
     int msg_id = esp_mqtt_client_publish(global_client, "/env_data/", data, 0, 0, 1);
     if (msg_id < 0) {
-        ESP_LOGE(TAG_MQTT, "Publish failed, client not ready");
+      ESP_LOGE(TAG_MQTT, "Publish failed, client not ready");
     }
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
